@@ -1,100 +1,80 @@
-# usv_core/config/usv_nav2_params.yaml
-# 无地图 (Mapless) 导航专用配置
-
 bt_navigator:
   ros__parameters:
-    use_sim_time: False
-    global_frame: odom            # [关键修改] 无 map 坐标系，依赖 odom
+    use_sim_time: false
+    global_frame: odom
     robot_base_frame: base_link
     odom_topic: /odom
-    bt_loop_duration: 10
-    default_server_timeout: 20
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_spin_action_bt_node
+      - nav2_wait_action_bt_node
+      - nav2_clear_costmap_service_bt_node
+      - nav2_is_stuck_condition_bt_node
+      - nav2_goal_reached_condition_bt_node
+      - nav2_initial_pose_received_condition_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_recovery_node_bt_node
 
 controller_server:
   ros__parameters:
-    use_sim_time: False
-    controller_frequency: 10.0    # 降低频率，水面船只不需要太高频的控制
+    use_sim_time: false
+    controller_frequency: 10.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
     progress_checker_plugin: "progress_checker"
     goal_checker_plugins: ["general_goal_checker"]
     controller_plugins: ["FollowPath"]
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5
+      required_movement_radius: 0.2
       movement_time_allowance: 10.0
+      
     general_goal_checker:
-      stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.5      # [调整] 船的惯性大，到达容忍度放宽到 0.5 米
+      xy_goal_tolerance: 0.5
       yaw_goal_tolerance: 0.5
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: True
-      min_vel_x: 0.0
-      max_vel_x: 1.0              # [调整] 根据你的实船性能设定最大速度 (m/s)
-      max_vel_y: 0.0              # 差速船无法横向平移
-      max_vel_theta: 0.8          # 最大转向速度 (rad/s)
-      acc_lim_x: 1.0              # 加速度限制
-      acc_lim_theta: 1.5
-      decel_lim_x: -1.0
-      decel_lim_theta: -1.5
+      min_vel_x: -0.1
+      max_vel_x: 0.8
+      min_vel_y: 0.0
+      max_vel_y: 0.0
+      vy_samples: 0
+      max_vel_theta: 0.8
+      acc_lim_x: 0.3
+      acc_lim_y: 0.0
+      acc_lim_theta: 0.5
+      decel_lim_x: -0.3
+      
+      vx_samples: 20
+      vtheta_samples: 20
+      sim_time: 2.0
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
-      GoalAlign.scale: 24.0
       PathDist.scale: 32.0
       GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
 
 local_costmap:
   local_costmap:
     ros__parameters:
-      update_frequency: 5.0
+      update_frequency: 10.0
       publish_frequency: 2.0
-      global_frame: odom          # [关键修改] 局部代价地图基于 odom
+      global_frame: odom
       robot_base_frame: base_link
-      use_sim_time: False
-      rolling_window: True        # 动态滚动窗口
-      width: 10                   # 局部地图长宽 10x10 米
-      height: 10
+      use_sim_time: false
+      rolling_window: true
+      width: 20
+      height: 20
       resolution: 0.05
-      robot_radius: 0.4           # [调整] 你的船体半径（米），非常重要！影响避障距离
-      plugins: ["obstacle_layer", "inflation_layer"] # 移除了 voxel_layer，2D雷达用 obstacle_layer 即可
-      
-      obstacle_layer:
-        plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: True
-        observation_sources: scan
-        scan:
-          topic: /scan            # 确保与你雷达驱动发布的话题一致
-          max_obstacle_height: 2.0
-          clearing: True
-          marking: True
-          data_type: "LaserScan"
-          raytrace_max_range: 5.0 # 清除障碍物的最大射线距离
-          obstacle_max_range: 4.5 # 标记障碍物的最大距离
-
-      inflation_layer:
-        plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 1.0     # 膨胀半径（在此范围内的路径成本增加）
-      always_send_full_costmap: True
-
-global_costmap:
-  global_costmap:
-    ros__parameters:
-      update_frequency: 2.0
-      publish_frequency: 1.0
-      global_frame: odom          # [关键修改] 全局代价地图也基于 odom
-      robot_base_frame: base_link
-      use_sim_time: False
-      rolling_window: True        # [关键修改] 无静态地图，必须开启滚动窗口
-      width: 40                   # 全局地图长宽 40x40 米
-      height: 40
-      robot_radius: 0.4
-      resolution: 0.1             # 全局分辨率可以稍微粗糙一点，节省算力
-      plugins: ["obstacle_layer", "inflation_layer"] # [关键修改] 移除 static_layer
+      footprint: "[ [0.35, 0.15], [0.35, -0.15], [-0.35, -0.15], [-0.35, 0.15] ]"
+      plugins: ["obstacle_layer", "inflation_layer"]
       
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -102,35 +82,68 @@ global_costmap:
         observation_sources: scan
         scan:
           topic: /scan
+          max_obstacle_height: 2.0
           clearing: True
           marking: True
           data_type: "LaserScan"
-          raytrace_max_range: 5.0
-          obstacle_max_range: 4.5
-      
+          raytrace_max_range: 12.0
+          obstacle_max_range: 11.0
+
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
+        cost_scaling_factor: 2.5
         inflation_radius: 1.0
-      always_send_full_costmap: True
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 2.0
+      publish_frequency: 1.0
+      global_frame: odom
+      robot_base_frame: base_link
+      use_sim_time: false
+      rolling_window: true
+      width: 50
+      height: 50
+      resolution: 0.2
+      footprint: "[ [0.35, 0.15], [0.35, -0.15], [-0.35, -0.15], [-0.35, 0.15] ]"
+      track_unknown_space: false
+      plugins: ["obstacle_layer", "inflation_layer"]
+      
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 12.0
+          obstacle_max_range: 11.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 2.5
+        inflation_radius: 1.0
 
 planner_server:
   ros__parameters:
-    use_sim_time: False
+    expected_planner_frequency: 2.0
+    use_sim_time: false
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
-      use_astar: False
-      allow_unknown: True         # [关键修改] 允许在未知区域规划（因为没有预先建图）
+      use_astar: false
+      allow_unknown: true
 
 behavior_server:
   ros__parameters:
-    use_sim_time: False
     costmap_topic: local_costmap/costmap_raw
     footprint_topic: local_costmap/published_footprint
     cycle_frequency: 10.0
-    behavior_plugins: ["spin", "backup", "wait"] # 水面通常不需要 teleop
+    behavior_plugins: ["spin", "backup", "wait"]
     spin:
       plugin: "nav2_behaviors/Spin"
     backup:
@@ -139,3 +152,4 @@ behavior_server:
       plugin: "nav2_behaviors/Wait"
     global_frame: odom
     robot_base_frame: base_link
+    use_sim_time: false

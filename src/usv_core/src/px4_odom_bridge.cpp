@@ -126,7 +126,7 @@ private:
 
         odom_msg.pose.covariance[0] = msg->position_variance[1];
         odom_msg.pose.covariance[7] = msg->position_variance[0];
-        odom_msg.pose.covariance[14] = msg->position_variance[2];
+        odom_msg.pose.covariance[14] = 1e-6;
         odom_msg.pose.covariance[21] = msg->orientation_variance[0]; 
         odom_msg.pose.covariance[28] = msg->orientation_variance[1]; 
         odom_msg.pose.covariance[35] = msg->orientation_variance[2]; 

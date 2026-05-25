@@ -1,26 +1,50 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
-    # 获取 usv_core 的路径，找到参数文件
+    # 1. 定位 usv_core 功能包的路径
     usv_core_dir = get_package_share_directory('usv_core')
-    nav2_params_path = os.path.join(usv_core_dir, 'config', 'usv_nav2_params.yaml')
-
-    # 获取 nav2_bringup 包中的 navigation_launch.py
+    
+    # 2. 指定 YAML 参数文件路径
+    params_file = os.path.join(usv_core_dir, 'config', 'usv_nav2_params.yaml')
+    
+    # 3. 获取 ROS 2 官方 nav2_bringup 包的路径
     nav2_bringup_dir = get_package_share_directory('nav2_bringup')
-    navigation_launch_cmd = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(nav2_bringup_dir, 'launch', 'navigation_launch.py')),
+    
+    # 4. 设置 Launch 配置变量
+    use_sim_time = LaunchConfiguration('use_sim_time', default='false') # 实船为 false
+
+    # 5. 只调用 navigation_launch.py (排除了 map_server 和 amcl)
+    nav2_cmd = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(nav2_bringup_dir, 'launch', 'navigation_launch.py')
+        ),
         launch_arguments={
-            'use_sim_time': 'false',
-            'params_file': nav2_params_path,
-            'autostart': 'true'
+            'use_sim_time': use_sim_time,
+            'params_file': params_file,
+            'autostart': 'true'       # 节点启动后自动转换为 Active 状态
         }.items()
     )
 
-    return LaunchDescription([
-        navigation_launch_cmd
-    ])
+    # 6. 返回 LaunchDescription
+    ld = LaunchDescription()
+    
+    # 声明启动参数，方便在终端临时覆盖 (如：ros2 launch ... use_sim_time:=true)
+    ld.add_action(DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use simulation (Gazebo) clock if true'))
+        
+    ld.add_action(DeclareLaunchArgument(
+        'params_file',
+        default_value=params_file,
+        description='Full path to the ROS2 parameters file to use for all launched nodes'))
+
+    # 添加 Nav2 核心指令
+    ld.add_action(nav2_cmd)
+
+    return ld
