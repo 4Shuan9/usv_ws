@@ -1,0 +1,12 @@
+# ROS 2 自动生成的构建产物
+build/
+install/
+log/
+
+# 其他可选的ROS/IDE相关忽略项
+*.swp
+*~
+.vscode/
+.idea/
+*.pyc
+__pycache__/
