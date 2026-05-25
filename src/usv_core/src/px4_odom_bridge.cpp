@@ -44,7 +44,8 @@ private:
         auto odom_msg = nav_msgs::msg::Odometry();
         auto t = geometry_msgs::msg::TransformStamped();
 
-        rclcpp::Time now = this->get_clock()->now();
+        rclcpp::Time timestamp_ros(msg->timestamp * 1000ULL);
+        rclcpp::Time now = timestamp_ros;
         
         odom_msg.header.stamp = now;
         odom_msg.header.frame_id = "odom";      
