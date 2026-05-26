@@ -6,19 +6,16 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
-    # 1. 定位 usv_core 功能包的路径
+    # 1. 路径定义
     usv_core_dir = get_package_share_directory('usv_core')
-    
-    # 2. 指定 YAML 参数文件路径
-    params_file = os.path.join(usv_core_dir, 'config', 'usv_nav2_params.yaml')
-    
-    # 3. 获取 ROS 2 官方 nav2_bringup 包的路径
     nav2_bringup_dir = get_package_share_directory('nav2_bringup')
     
-    # 4. 设置 Launch 配置变量
-    use_sim_time = LaunchConfiguration('use_sim_time', default='false') # 实船为 false
+    params_file = os.path.join(usv_core_dir, 'config', 'usv_nav2_params.yaml')
+    
+    # 2. Launch 配置变量
+    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
 
-    # 5. 只调用 navigation_launch.py (排除了 map_server 和 amcl)
+    # 3. 核心节点启动命令 (调用官方 navigation_launch.py, 完美避开 map_server 和 amcl)
     nav2_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(nav2_bringup_dir, 'launch', 'navigation_launch.py')
@@ -26,14 +23,14 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': use_sim_time,
             'params_file': params_file,
-            'autostart': 'true'       # 节点启动后自动转换为 Active 状态
+            'autostart': 'true'       # 自动激活所有 Lifecycle 节点
         }.items()
     )
 
-    # 6. 返回 LaunchDescription
+    # 4. 构建 LaunchDescription
     ld = LaunchDescription()
     
-    # 声明启动参数，方便在终端临时覆盖 (如：ros2 launch ... use_sim_time:=true)
+    # 声明启动参数，支持终端动态覆盖 (例如: ros2 launch usv_core usv_nav2.launch.py use_sim_time:=true)
     ld.add_action(DeclareLaunchArgument(
         'use_sim_time',
         default_value='false',
@@ -44,7 +41,7 @@ def generate_launch_description():
         default_value=params_file,
         description='Full path to the ROS2 parameters file to use for all launched nodes'))
 
-    # 添加 Nav2 核心指令
+    # 将 Nav2 进程加入启动队列
     ld.add_action(nav2_cmd)
 
     return ld
