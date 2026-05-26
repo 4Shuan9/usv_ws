@@ -25,7 +25,6 @@ bt_navigator:
       - nav2_pipeline_sequence_bt_node
       - nav2_round_robin_node_bt_node
       - nav2_recovery_node_bt_node
-      - nav2_sequence_star_bt_node          # 新增：SequenceStar 逻辑流节点
       - nav2_time_expired_condition_bt_node # 新增：替代报错的 RateController，用于控制重规划频率
 
 controller_server:

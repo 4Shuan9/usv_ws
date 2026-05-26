@@ -12,10 +12,13 @@ def generate_launch_description():
     
     params_file = os.path.join(usv_core_dir, 'config', 'usv_nav2_params.yaml')
     
+    # 获取咱们刚才写的极简行为树的绝对路径
+    bt_xml_file = os.path.join(usv_core_dir, 'config', 'usv_mapless_bt.xml')
+    
     # 2. Launch 配置变量
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
 
-    # 3. 核心节点启动命令 (调用官方 navigation_launch.py, 完美避开 map_server 和 amcl)
+    # 3. 核心节点启动命令
     nav2_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(nav2_bringup_dir, 'launch', 'navigation_launch.py')
@@ -23,14 +26,15 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': use_sim_time,
             'params_file': params_file,
-            'autostart': 'true'       # 自动激活所有 Lifecycle 节点
+            'autostart': 'true',
+            # ！！！核心修复：强制用我们的 XML 覆盖官方 Launch 的默认参数！！！
+            'default_nav_to_pose_bt_xml': bt_xml_file
         }.items()
     )
 
     # 4. 构建 LaunchDescription
     ld = LaunchDescription()
     
-    # 声明启动参数，支持终端动态覆盖 (例如: ros2 launch usv_core usv_nav2.launch.py use_sim_time:=true)
     ld.add_action(DeclareLaunchArgument(
         'use_sim_time',
         default_value='false',
@@ -41,7 +45,6 @@ def generate_launch_description():
         default_value=params_file,
         description='Full path to the ROS2 parameters file to use for all launched nodes'))
 
-    # 将 Nav2 进程加入启动队列
     ld.add_action(nav2_cmd)
 
     return ld
