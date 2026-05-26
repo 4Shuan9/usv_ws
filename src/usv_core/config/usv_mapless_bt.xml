@@ -1,0 +1,17 @@
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <TimeExpired condition="1.0" name="ReplannerInterval"/>
+        <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+        <FollowPath path="{path}" controller_id="FollowPath"/>
+      </PipelineSequence>
+      <SequenceStar name="RecoveryActions">
+        <ClearEntireCostmap name="ClearLocalCostmap-SubTree" service_name="local_costmap/clear_entirely_local_costmap"/>
+        <BackUp backup_dist="1.0" backup_speed="0.1"/>
+        <Spin spin_dist="1.57"/>
+        <Wait wait_duration="3"/>
+      </SequenceStar>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

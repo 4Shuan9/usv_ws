@@ -6,10 +6,16 @@ bt_navigator:
     global_frame: odom          # 无静态地图时，全局参考系设为 odom
     robot_base_frame: base_link
     odom_topic: /odom
-    # 移除了所有依赖绝对定位(AMCL)的恢复节点，保留基础的路径跟随和等待
+    
+    # ！！！重点修改：指向你刚刚创建的极简行为树 XML 文件！！！
+    # 请确保这是香橙派上的绝对路径 (假设你的工作空间是 /home/orangepi/usv_ws)
+    default_nav_to_pose_bt_xml: "/home/orangepi/usv_ws/src/usv_core/config/usv_mapless_bt.xml"
+    
+    # 移除了所有依赖绝对定位(AMCL)的节点，补齐了极简行为树需要的控制节点
     plugin_lib_names:
       - nav2_compute_path_to_pose_action_bt_node
       - nav2_follow_path_action_bt_node
+      - nav2_back_up_action_bt_node         # 新增：允许倒车动作
       - nav2_spin_action_bt_node
       - nav2_wait_action_bt_node
       - nav2_clear_costmap_service_bt_node
@@ -19,6 +25,8 @@ bt_navigator:
       - nav2_pipeline_sequence_bt_node
       - nav2_round_robin_node_bt_node
       - nav2_recovery_node_bt_node
+      - nav2_sequence_star_bt_node          # 新增：SequenceStar 逻辑流节点
+      - nav2_time_expired_condition_bt_node # 新增：替代报错的 RateController，用于控制重规划频率
 
 controller_server:
   ros__parameters:
@@ -149,12 +157,17 @@ behavior_server:
     footprint_topic: local_costmap/published_footprint
     cycle_frequency: 10.0
     behavior_plugins: ["spin", "backup", "wait"]
-    spin:
-      plugin: "nav2_behaviors/Spin"
-    backup:
-      plugin: "nav2_behaviors/BackUp"
-    wait:
-      plugin: "nav2_behaviors/Wait"
     global_frame: odom
     robot_base_frame: base_link
     use_sim_time: false
+    # ！！！重点修改：为恢复动作添加水面安全限速！！！
+    spin:
+      plugin: "nav2_behaviors/Spin"
+      simulate_ahead_time: 2.0
+      max_rotational_vel: 0.5    # 防止水面上强行原地剧烈打转导致电机过载
+    backup:
+      plugin: "nav2_behaviors/BackUp"
+      simulate_ahead_time: 2.0
+      speed: -0.1                # 强制限制倒车速度，必须与 DWB 里的 min_vel_x 一致，防止大量进水
+    wait:
+      plugin: "nav2_behaviors/Wait"
