@@ -74,8 +74,8 @@ local_costmap:
       robot_base_frame: base_link
       use_sim_time: false
       rolling_window: true      # 滚动窗口模式，船体永远在地图中心
-      width: 20                 # 局部感知范围 20x20 米
-      height: 20
+      width: 30                 # 局部感知范围 30x30 米
+      height: 30
       resolution: 0.05
       # 船体多边形投影：长70cm(前35后35)，宽30cm(左15右15)
       footprint: "[ [0.35, 0.15], [0.35, -0.15], [-0.35, -0.15], [-0.35, 0.15] ]"
