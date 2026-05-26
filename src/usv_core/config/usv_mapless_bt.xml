@@ -2,7 +2,7 @@
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="6" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
-        <TimeExpired condition="1.0" name="ReplannerInterval"/>
+        <TimeExpired seconds="1.0" name="ReplannerInterval"/>
         <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
         <FollowPath path="{path}" controller_id="FollowPath"/>
       </PipelineSequence>

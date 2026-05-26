@@ -7,15 +7,15 @@ bt_navigator:
     robot_base_frame: base_link
     odom_topic: /odom
     
-    # ！！！重点修改：指向你刚刚创建的极简行为树 XML 文件！！！
-    # 请确保这是香橙派上的绝对路径 (假设你的工作空间是 /home/orangepi/usv_ws)
-    default_nav_to_pose_bt_xml: "/home/orangepi/usv_ws/src/usv_core/config/usv_mapless_bt.xml"
+    # 指向你刚刚创建的极简行为树 XML 文件 (用于单点导航)
+    # default_nav_to_pose_bt_xml: "/home/orangepi/usv_ws/src/usv_core/config/usv_mapless_bt.xml"
     
-    # 移除了所有依赖绝对定位(AMCL)的节点，补齐了极简行为树需要的控制节点
+    # ！！！重点修复：补齐了多点导航默认行为树所需的基础节点，防止系统解析时崩溃！！！
     plugin_lib_names:
       - nav2_compute_path_to_pose_action_bt_node
+      - nav2_compute_path_through_poses_action_bt_node # 补齐多点路径规划
       - nav2_follow_path_action_bt_node
-      - nav2_back_up_action_bt_node         # 新增：允许倒车动作
+      - nav2_back_up_action_bt_node
       - nav2_spin_action_bt_node
       - nav2_wait_action_bt_node
       - nav2_clear_costmap_service_bt_node
@@ -25,12 +25,14 @@ bt_navigator:
       - nav2_pipeline_sequence_bt_node
       - nav2_round_robin_node_bt_node
       - nav2_recovery_node_bt_node
-      - nav2_time_expired_condition_bt_node # 新增：替代报错的 RateController，用于控制重规划频率
+      - nav2_time_expired_condition_bt_node 
+      - nav2_rate_controller_bt_node               # 解决 RateController 报错
+      - nav2_remove_passed_goals_action_bt_node    # 解决多点导航移除目标报错
 
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 10.0  # 水面环境动态变化相对较慢，10Hz 足够且节省 CPU
+    controller_frequency: 10.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
@@ -45,19 +47,19 @@ controller_server:
       
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.5    # 水面容易漂移，0.5米的容忍度比较合理
-      yaw_goal_tolerance: 0.5
+      xy_goal_tolerance: 0.3
+      yaw_goal_tolerance: 0.3
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       # 动力学限制 (根据双997有刷差速电机配置)
-      min_vel_x: -0.1           # 允许缓慢倒车脱困
+      min_vel_x: -0.1
       max_vel_x: 0.8
-      min_vel_y: 0.0            # 差速船无法横移，Y轴速度彻底锁死
+      min_vel_y: 0.0
       max_vel_y: 0.0
       vy_samples: 0
       max_vel_theta: 0.8
-      acc_lim_x: 0.3            # 水面阻力大且有惯性，加减速限制得平滑一些
+      acc_lim_x: 0.3
       acc_lim_y: 0.0
       acc_lim_theta: 0.5
       decel_lim_x: -0.3
@@ -65,7 +67,7 @@ controller_server:
       # 采样与评分
       vx_samples: 20
       vtheta_samples: 20
-      sim_time: 2.0             # 预测未来2秒的轨迹，对高惯性的船体很重要
+      sim_time: 2.0
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
@@ -75,16 +77,15 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
-      update_frequency: 10.0    # 匹配雷达的 10Hz
+      update_frequency: 10.0
       publish_frequency: 2.0
-      global_frame: odom        # 局部和全局的基准都是 odom
+      global_frame: odom
       robot_base_frame: base_link
       use_sim_time: false
-      rolling_window: true      # 滚动窗口模式，船体永远在地图中心
-      width: 30                 # 局部感知范围 30x30 米
+      rolling_window: true
+      width: 30
       height: 30
       resolution: 0.05
-      # 船体多边形投影：长70cm(前35后35)，宽30cm(左15右15)
       footprint: "[ [0.35, 0.15], [0.35, -0.15], [-0.35, -0.15], [-0.35, 0.15] ]"
       plugins: ["obstacle_layer", "inflation_layer"]
       
@@ -98,26 +99,26 @@ local_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
-          raytrace_max_range: 12.0  # D6 雷达最大测距
-          obstacle_max_range: 11.0  # 略小于最大测距以保证数据可靠性
+          raytrace_max_range: 12.0
+          obstacle_max_range: 11.0
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 2.5
-        inflation_radius: 1.0     # 障碍物膨胀半径，保证船体安全距离
+        inflation_radius: 1.0
 
 global_costmap:
   global_costmap:
     ros__parameters:
       update_frequency: 2.0
       publish_frequency: 1.0
-      global_frame: odom        # Mapless核心：全局地图也用 odom
+      global_frame: odom
       robot_base_frame: base_link
       use_sim_time: false
-      rolling_window: true      # 无静态图，全局地图也必须随船滚动
-      width: 50                 # 50x50米大窗口，用于宏观路径规划
-      height: 50
-      resolution: 0.2           # 分辨率设粗，极大节省香橙派算力
+      rolling_window: true
+      width: 100
+      height: 100
+      resolution: 0.2
       footprint: "[ [0.35, 0.15], [0.35, -0.15], [-0.35, -0.15], [-0.35, 0.15] ]"
       track_unknown_space: false
       plugins: ["obstacle_layer", "inflation_layer"]
@@ -137,7 +138,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 2.5
-        inflation_radius: 1.0
+        inflation_radius: 0.5 
 
 planner_server:
   ros__parameters:
@@ -147,8 +148,8 @@ planner_server:
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
-      use_astar: false          # Dijkstra 算法通常在空旷水面表现更好
-      allow_unknown: true       # 允许跨越雷达未扫到的"未知水域"规划航线
+      use_astar: false
+      allow_unknown: true
 
 behavior_server:
   ros__parameters:
@@ -159,14 +160,13 @@ behavior_server:
     global_frame: odom
     robot_base_frame: base_link
     use_sim_time: false
-    # ！！！重点修改：为恢复动作添加水面安全限速！！！
     spin:
       plugin: "nav2_behaviors/Spin"
       simulate_ahead_time: 2.0
-      max_rotational_vel: 0.5    # 防止水面上强行原地剧烈打转导致电机过载
+      max_rotational_vel: 0.5
     backup:
       plugin: "nav2_behaviors/BackUp"
       simulate_ahead_time: 2.0
-      speed: -0.1                # 强制限制倒车速度，必须与 DWB 里的 min_vel_x 一致，防止大量进水
+      speed: -0.1
     wait:
       plugin: "nav2_behaviors/Wait"
