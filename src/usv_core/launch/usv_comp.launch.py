@@ -9,29 +9,27 @@ def generate_launch_description():
     usv_core_dir = get_package_share_directory('usv_core')
 
     # 1. MicroXRCEAgent (带启动前清理)
-    # 使用 sh -c 配合 pkill 先清理可能残留的后台进程，防止串口被占用，然后启动 Agent
     micrortps_agent = ExecuteProcess(
-        cmd=['sh', '-c', 'pkill -f MicroXRCEAgent || true; MicroXRCEAgent serial --dev /dev/ttyS7 -b 1500000'],
+        cmd=['sh', '-c', 'pkill -x MicroXRCEAgent || true; MicroXRCEAgent serial --dev /dev/ttyS7 -b 1500000'],
         output='screen',
         name='micro_xrce_agent'
     )
 
-    # 2. 雷达节点 m1ct_d2
-    lidar_node = Node(
-        package='m1ct_d2',
-        executable='m1ct_d2',
-        name='m1ct_d2_node',
-        output='screen'
+    # 2. 雷达节点 m1ct_d2 (修改这里！使用 ExecuteProcess 模拟 ros2 run)
+    lidar_node = ExecuteProcess(
+        cmd=['ros2', 'run', 'm1ct_d2', 'm1ct_d2'],
+        output='screen',
+        name='m1ct_d2_node'
     )
 
-    # 3. 静态 TF (引入已有的 launch 文件)
+    # 3. 静态 TF
     tf_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(usv_core_dir, 'launch', 'usv_tf.launch.py')
         )
     )
 
-    # 4. PX4 to Nav2 桥接节点 (里程计)
+    # 4. PX4 to Nav2 桥接节点
     px4_odom_bridge_node = Node(
         package='usv_core',
         executable='px4_odom_bridge',
