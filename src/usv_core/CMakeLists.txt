@@ -20,6 +20,9 @@ ament_target_dependencies(px4_odom_bridge rclcpp nav_msgs sensor_msgs geometry_m
 add_executable(cmd_vel_to_px4 src/cmd_vel_to_px4.cpp)
 ament_target_dependencies(cmd_vel_to_px4 rclcpp geometry_msgs px4_msgs tf2)
 
+add_executable(usv_offboard_test src/usv_offboard_test.cpp)
+ament_target_dependencies(usv_offboard_test rclcpp px4_msgs)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
@@ -30,12 +33,15 @@ endif()
 install(TARGETS
   px4_odom_bridge
   cmd_vel_to_px4
+  usv_offboard_test
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(DIRECTORY
   launch
   config
+  rviz2
+  urdf
   DESTINATION share/${PROJECT_NAME}
 )
 
