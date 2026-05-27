@@ -17,6 +17,9 @@ find_package(px4_msgs REQUIRED)
 add_executable(px4_odom_bridge src/px4_odom_bridge.cpp)
 ament_target_dependencies(px4_odom_bridge rclcpp nav_msgs sensor_msgs geometry_msgs tf2 tf2_ros px4_msgs)
 
+add_executable(cmd_vel_to_px4 src/cmd_vel_to_px4.cpp)
+ament_target_dependencies(cmd_vel_to_px4 rclcpp geometry_msgs px4_msgs tf2)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
@@ -26,6 +29,7 @@ endif()
 
 install(TARGETS
   px4_odom_bridge
+  cmd_vel_to_px4
   DESTINATION lib/${PROJECT_NAME}
 )
 
