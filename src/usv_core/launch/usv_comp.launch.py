@@ -15,25 +15,54 @@ def generate_launch_description():
         name='micro_xrce_agent'
     )
 
-    # 2. 雷达节点 m1ct_d2 (修改这里！使用 ExecuteProcess 模拟 ros2 run)
+    # 2. 国科光芯雷达节点
     lidar_node = ExecuteProcess(
         cmd=['ros2', 'run', 'm1ct_d2', 'm1ct_d2'],
         output='screen',
         name='m1ct_d2_node'
     )
 
-    # 3. 静态 TF
+    # 3. 静态 TF (发布 base_link -> laser_link)
     tf_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(usv_core_dir, 'launch', 'usv_tf.launch.py')
         )
     )
 
-    # 4. PX4 to Nav2 桥接节点
-    px4_odom_bridge_node = Node(
+    # ================= 新增部分 =================
+    
+    # 4. 启动 rf2o 激光雷达里程计
+    rf2o_node = Node(
+        package='rf2o_laser_odometry',
+        executable='rf2o_laser_odometry_node',
+        name='rf2o_laser_odometry',
+        output='screen',
+        parameters=[{
+            'laser_scan_topic': '/scan',
+            'odom_topic': '/odom_rf2o',
+            'publish_tf': False,         # 绝对不能发TF，交给飞控桥接器发
+            'base_frame_id': 'base_link',
+            'odom_frame_id': 'odom',
+            'init_pose_from_topic': '',
+            'freq': 10.0                 # 你的雷达是 10Hz，这里匹配为 10.0
+        }]
+    )
+
+    # 5. 启动 rf2o 到 PX4 的桥接节点 (注入视觉里程计)
+    rf2o_to_px4_node = Node(
         package='usv_core',
-        executable='px4_odom_bridge',
-        name='px4_odom_bridge',
+        executable='rf2o_to_px4',
+        name='rf2o_to_px4',
+        output='screen'
+    )
+
+    # ============================================
+
+    # 6. PX4 到 Nav2 的桥接节点 (原 px4_odom_bridge，现改名为 px4_to_nav2)
+    px4_to_nav2_node = Node(
+        package='usv_core',
+        executable='px4_to_nav2',
+        name='px4_to_nav2',
         output='screen'
     )
 
@@ -42,6 +71,8 @@ def generate_launch_description():
     ld.add_action(micrortps_agent)
     ld.add_action(lidar_node)
     ld.add_action(tf_launch)
-    ld.add_action(px4_odom_bridge_node)
+    ld.add_action(rf2o_node)          # 启动 2D 激光里程计
+    ld.add_action(rf2o_to_px4_node)   # 激光里程计 -> 飞控
+    ld.add_action(px4_to_nav2_node)   # 飞控 (融合后) -> ROS2 导航栈
 
     return ld

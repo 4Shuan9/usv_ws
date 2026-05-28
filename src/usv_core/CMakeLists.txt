@@ -14,8 +14,13 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(px4_msgs REQUIRED)
 
-add_executable(px4_odom_bridge src/px4_odom_bridge.cpp)
-ament_target_dependencies(px4_odom_bridge rclcpp nav_msgs sensor_msgs geometry_msgs tf2 tf2_ros px4_msgs)
+# [修改1]：重命名的 px4_to_nav2
+add_executable(px4_to_nav2 src/px4_to_nav2.cpp)
+ament_target_dependencies(px4_to_nav2 rclcpp nav_msgs sensor_msgs geometry_msgs tf2 tf2_ros px4_msgs)
+
+# [新增]：rf2o_to_px4 里程计注入节点
+add_executable(rf2o_to_px4 src/rf2o_to_px4.cpp)
+ament_target_dependencies(rf2o_to_px4 rclcpp nav_msgs geometry_msgs tf2 px4_msgs)
 
 add_executable(cmd_vel_to_px4 src/cmd_vel_to_px4.cpp)
 ament_target_dependencies(cmd_vel_to_px4 rclcpp geometry_msgs px4_msgs tf2)
@@ -31,7 +36,8 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS
-  px4_odom_bridge
+  px4_to_nav2
+  rf2o_to_px4
   cmd_vel_to_px4
   usv_offboard_test
   DESTINATION lib/${PROJECT_NAME}
