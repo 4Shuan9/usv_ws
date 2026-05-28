@@ -69,7 +69,7 @@ controller_server:
       # 速度采样与轨迹评分
       vx_samples: 20
       vtheta_samples: 20
-      sim_time: 2.0
+      sim_time: 1.0
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
@@ -88,7 +88,7 @@ local_costmap:
       rolling_window: true
       width: 30
       height: 30
-      resolution: 0.05
+      resolution: 0.1
       footprint: "[ [0.35, 0.15], [0.35, -0.15], [-0.35, -0.15], [-0.35, 0.15] ]"
       plugins: ["obstacle_layer", "inflation_layer"]
       
@@ -110,7 +110,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 2.5
-        inflation_radius: 1.0
+        inflation_radius: 0.3
 
 # 全局代价地图 (100m×100m滚动窗口)
 global_costmap:
@@ -146,7 +146,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 2.5
-        inflation_radius: 0.5 
+        inflation_radius: 0.3
 
 # 全局路径规划器
 planner_server:

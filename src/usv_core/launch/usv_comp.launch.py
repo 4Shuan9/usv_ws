@@ -37,6 +37,7 @@ def generate_launch_description():
         executable='rf2o_laser_odometry_node',
         name='rf2o_laser_odometry',
         output='screen',
+        ros_arguments=['--log-level', 'WARN'],
         parameters=[{
             'laser_scan_topic': '/scan',
             'odom_topic': '/odom_rf2o',
@@ -53,12 +54,13 @@ def generate_launch_description():
         package='usv_core',
         executable='rf2o_to_px4',
         name='rf2o_to_px4',
-        output='screen'
+        output='screen',
+        ros_arguments=['--log-level', 'WARN']
     )
 
     # ============================================
 
-    # 6. PX4 到 Nav2 的桥接节点 (原 px4_odom_bridge，现改名为 px4_to_nav2)
+    # 6. PX4 到 Nav2 的桥接节点
     px4_to_nav2_node = Node(
         package='usv_core',
         executable='px4_to_nav2',
