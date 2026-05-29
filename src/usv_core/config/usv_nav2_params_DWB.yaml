@@ -59,19 +59,22 @@ controller_server:
       # 动力学限制 (保持双997电机设定不变)
       min_vel_x: 0.0
       max_vel_x: 0.5
-      min_vel_y: 0.0
-      max_vel_y: 0.0
-      vy_samples: 0
-      max_vel_theta: 1.57
-      min_vel_theta: -1.57
+      min_vel_y: -0.5
+      max_vel_y: 0.5
+      max_vel_theta: 0.5
+      min_vel_theta: -0.5
       acc_lim_x: 0.5
-      acc_lim_y: 0.0
-      acc_lim_theta: 1.57
-      decel_lim_x: -1.0
+      decel_lim_x: -0.5
+      acc_lim_y: 0.5
+      decel_lim_y: -0.5
+      acc_lim_theta: 0.5
+      decel_lim_theta: -0.5
+
       
       vx_samples: 20
-      vtheta_samples: 40
-      sim_time: 1.0
+      vy_samples: 0
+      vtheta_samples: 20
+      sim_time: 2.0
       transform_tolerance: 0.5        # 算力恢复后，不再需要高延迟容忍
       critics: ["RotateToGoal", "Oscillation", "ObstacleFootprint", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       ObstacleFootprint.scale: 0.02
@@ -108,7 +111,7 @@ local_costmap:
           marking: True
           data_type: "LaserScan"
           raytrace_max_range: 10.0     # 局部地图只有10米宽，只发10米的射线即可
-          obstacle_max_range: 2.0
+          obstacle_max_range: 5.0
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -143,7 +146,7 @@ global_costmap:
           marking: True
           data_type: "LaserScan"
           raytrace_max_range: 12.0
-          obstacle_max_range: 11.0
+          obstacle_max_range: 10.0
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
