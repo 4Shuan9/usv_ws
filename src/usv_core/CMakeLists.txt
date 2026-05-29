@@ -5,6 +5,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# --- 1. 查找依赖包 ---
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -14,20 +15,38 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(px4_msgs REQUIRED)
 
-# [修改1]：重命名的 px4_to_nav2
+# 包含 include 目录 (由于你有 include/usv_core 目录)
+include_directories(include)
+
+# --- 2. 编译节点 ---
+
+# [节点 1]：px4_to_nav2
 add_executable(px4_to_nav2 src/px4_to_nav2.cpp)
-ament_target_dependencies(px4_to_nav2 rclcpp nav_msgs sensor_msgs geometry_msgs tf2 tf2_ros px4_msgs)
+ament_target_dependencies(px4_to_nav2 
+  rclcpp nav_msgs sensor_msgs geometry_msgs tf2 tf2_ros px4_msgs)
 
-# [新增]：rf2o_to_px4 里程计注入节点
+# [节点 2]：rf2o_to_px4 里程计注入节点
 add_executable(rf2o_to_px4 src/rf2o_to_px4.cpp)
-ament_target_dependencies(rf2o_to_px4 rclcpp nav_msgs geometry_msgs tf2 px4_msgs)
+ament_target_dependencies(rf2o_to_px4 
+  rclcpp nav_msgs geometry_msgs tf2 px4_msgs)
 
-add_executable(cmd_vel_to_px4 src/cmd_vel_to_px4.cpp)
-ament_target_dependencies(cmd_vel_to_px4 rclcpp geometry_msgs px4_msgs tf2)
-
+# [节点 3]：键盘控制测试程序 usv_offboard_test
 add_executable(usv_offboard_test src/usv_offboard_test.cpp)
-ament_target_dependencies(usv_offboard_test rclcpp px4_msgs)
+ament_target_dependencies(usv_offboard_test 
+  rclcpp px4_msgs tf2)
 
+# [节点 4]：cmd_vel_to_px4 (注意：如果你已经彻底废弃该文件，可将这行注释掉或直接删除源文件)
+add_executable(cmd_vel_to_px4 src/cmd_vel_to_px4.cpp)
+ament_target_dependencies(cmd_vel_to_px4 
+  rclcpp geometry_msgs px4_msgs tf2)
+
+# [节点 5]：keyboard_to_px4 (基于目录树补全)
+add_executable(keyboard_to_px4 src/keyboard_to_px4.cpp)
+ament_target_dependencies(keyboard_to_px4 
+  rclcpp px4_msgs tf2)
+
+
+# --- 3. 测试配置 ---
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
@@ -35,14 +54,25 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+
+# --- 4. 安装规则 ---
+
+# 安装可执行文件
 install(TARGETS
   px4_to_nav2
   rf2o_to_px4
-  cmd_vel_to_px4
   usv_offboard_test
+  cmd_vel_to_px4
+  keyboard_to_px4
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# 安装头文件目录 (ROS2 规范)
+install(DIRECTORY include/
+  DESTINATION include
+)
+
+# 安装其他资源目录 (Launch, config, rviz, urdf)
 install(DIRECTORY
   launch
   config
