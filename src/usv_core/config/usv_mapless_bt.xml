@@ -1,10 +1,15 @@
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      
       <PipelineSequence name="NavigateWithReplanning">
-        <TimeExpired seconds="0.5" name="ReplannerInterval"/>
-        <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+        
+        <RateController hz="2.0">
+          <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+        </RateController>
+        
         <FollowPath path="{path}" controller_id="FollowPath"/>
+        
       </PipelineSequence>
       
       <SequenceStar name="RecoveryActions">
@@ -12,6 +17,7 @@
         <ClearEntireCostmap name="ClearGlobalCostmap-SubTree" service_name="global_costmap/clear_entirely_global_costmap"/>
         <Wait wait_duration="3"/>
       </SequenceStar>
+      
     </RecoveryNode>
   </BehaviorTree>
 </root>

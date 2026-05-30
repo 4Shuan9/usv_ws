@@ -57,12 +57,18 @@ private:
     double target_vx_, target_vy_;
     double filtered_raw_vx_, filtered_raw_vy_;
 
-    // 核心调参宏
-    const double ALPHA = 0.5;          // /cmd_vel 的一阶低通滤波系数 (越小越平滑，但延迟越大)
-    const double ACCEL_LIMIT = 0.5;    // 每秒最大加速度 0.5 m/s^2
-    const double DEADZONE_X = 0.4;     // X轴死区
-    const double DEADZONE_Y = 0.2;     // Y轴死区
-    const double LEFT_FEEDFORWARD = -0.6; // 向左前馈补偿（PX4 FRD中Vy负值为左）
+    // ================= 核心调参宏 =================
+    const double ALPHA = 0.5;             // /cmd_vel 的一阶低通滤波系数 (越小越平滑，但延迟越大)
+    const double ACCEL_LIMIT = 0.5;       // 每秒最大加速度 0.5 m/s^2
+    const double DEADZONE_X = 0.4;        // X轴死区
+    const double DEADZONE_Y = 0.2;        // Y轴死区
+    const double LEFT_FEEDFORWARD = -0.1; // 向左前馈补偿（PX4 FRD中Vy负值为左）
+    
+    // 新增限幅与缩放参数
+    const double SCALE_X = 1.5;           // X轴(线速度)放大倍数
+    const double MAX_VEL_X = 2.0;         // X轴(线速度)最大绝对值限幅 (m/s)
+    const double MAX_VEL_Y = 1.0;         // Y轴(角速度转化的横向速度)最大绝对值限幅 (m/s)
+    // ==============================================
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_sub_;
@@ -89,11 +95,11 @@ private:
         filtered_raw_vx_ = ALPHA * msg->linear.x + (1.0 - ALPHA) * filtered_raw_vx_;
         filtered_raw_vy_ = ALPHA * (-msg->angular.z) + (1.0 - ALPHA) * filtered_raw_vy_;
 
-        // 2. 缩放与限幅：X 轴 2 倍放大，最大 2.0
-        double raw_vx = filtered_raw_vx_ * 2.0;
-        raw_vx = std::clamp(raw_vx, -2.0, 2.0);
+        // 2. 缩放与限幅：使用核心调参宏进行控制
+        double raw_vx = filtered_raw_vx_ * SCALE_X;
+        raw_vx = std::clamp(raw_vx, -MAX_VEL_X, MAX_VEL_X);
         
-        double raw_vy = filtered_raw_vy_;
+        double raw_vy = std::clamp(filtered_raw_vy_, -MAX_VEL_Y, MAX_VEL_Y);
 
         // 3. 差速模型联动补全 (只给角速度不给线速度船不动的情况)
         if (std::abs(raw_vy) > 0.01 && std::abs(raw_vx) < 0.01) {

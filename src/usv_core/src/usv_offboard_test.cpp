@@ -6,6 +6,7 @@
 #include <px4_msgs/msg/vehicle_status.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
+
 #include <cmath>
 #include <algorithm>
 #include <atomic>
@@ -72,7 +73,7 @@ public:
 private:
     void printWelcomeMenu() {
         RCLCPP_INFO(this->get_logger(), "\033[1;36m========================================================\033[0m");
-        RCLCPP_INFO(this->get_logger(), "\033[1;32m          🚀 USV Offboard 键盘控制节点已启动 🚀          \033[0m");
+        RCLCPP_INFO(this->get_logger(), "\033[1;32m          🚀 USV Offboard 键盘控制节点已启动 (纯映射模式) 🚀          \033[0m");
         RCLCPP_INFO(this->get_logger(), "\033[1;36m========================================================\033[0m");
         RCLCPP_INFO(this->get_logger(), " [\033[1;33m W / S \033[0m] : 前后平移 (机体X轴)  ±0.05 m/s (限幅 ±5.0)");
         RCLCPP_INFO(this->get_logger(), " [\033[1;33m A / D \033[0m] : 左右平移 (机体Y轴)  ±0.05 m/s (限幅 ±5.0)");
@@ -116,7 +117,7 @@ private:
                     vx = 0.0; vy = 0.0; wz = 0.0; 
                 }
 
-                // 浮点数消抖：极其靠近0时直接归零，防止出现 0.000001 之类的显示
+                // 浮点数消抖：极其靠近0时直接归零
                 if (std::abs(vx) < 0.01) vx = 0.0;
                 if (std::abs(vy) < 0.01) vy = 0.0;
                 if (std::abs(wz) < 0.01) wz = 0.0;
@@ -187,7 +188,8 @@ private:
         switch (bridge_state_) {
             case BridgeState::INIT_HEARTBEAT: {
                 setpoint_msg.velocity = {0.0f, 0.0f, 0.0f};
-                setpoint_msg.yaw = current_yaw_ned_.load();
+                setpoint_msg.yaw = NAN;           // 禁用偏航角度纠偏
+                setpoint_msg.yawspeed = 0.0f;     // 仅给角速度指令
                 if (++init_counter_ >= 20) {
                     bridge_state_ = BridgeState::ARM_AND_SWITCH;
                 }
@@ -195,7 +197,8 @@ private:
             }
             case BridgeState::ARM_AND_SWITCH: {
                 setpoint_msg.velocity = {0.0f, 0.0f, 0.0f};
-                setpoint_msg.yaw = current_yaw_ned_.load(); // 保持当前偏航角
+                setpoint_msg.yaw = NAN;           // 禁用偏航角度纠偏
+                setpoint_msg.yawspeed = 0.0f;     // 仅给角速度指令
                 
                 if (is_armed && is_offboard) {
                     bridge_state_ = BridgeState::ACTIVE;
@@ -230,7 +233,7 @@ private:
 
                 double current_yaw = current_yaw_ned_.load();
 
-                // 核心逻辑：将机体系 FLU (前左上) 速度映射到全局系 NED (北东地)
+                // === 纯数学映射逻辑 (FLU 到 NED) ===
                 // 北向速度 (North)
                 setpoint_msg.velocity[0] = vx * cos(current_yaw) + vy * sin(current_yaw); 
                 // 东向速度 (East)
@@ -238,11 +241,9 @@ private:
                 // 下向速度 (Down) - 保持平面运动
                 setpoint_msg.velocity[2] = 0.0;
                 
-                // 完全去掉外部偏航闭环，交由PX4内部控制
-                // 设置 yaw 为 NAN，让其失效
+                // 彻底禁用外部偏航闭环，NAN 让 PX4 忽略角度目标
                 setpoint_msg.yaw = NAN;
-                // 传递角速度指令，注意符号：
-                // 机体坐标系FLU左正转(CCW) -> 对应 NED 下方右正转(CW)，所以加负号
+                // 仅传递角速度指令 (机体系FLU左正转(CCW) -> 对应NED系下方右正转(CW)，加负号即可)
                 setpoint_msg.yawspeed = -wz; 
                 break;
             }
@@ -267,7 +268,7 @@ private:
     double smooth_vy_{0.0};
     double smooth_wz_{0.0};
     
-    // 原子变量，用于多线程安全(ROS定时器线程 vs 键盘监听线程)
+    // 原子变量，用于多线程安全
     std::atomic<int64_t> last_cmd_send_time_ns_;
     std::atomic<double> current_yaw_ned_;
     std::atomic<double> target_vx_flu_;
