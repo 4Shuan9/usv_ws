@@ -19,9 +19,14 @@ public:
                     target_vx_(0.0), target_vy_(0.0),
                     filtered_raw_vx_(0.0), filtered_raw_vy_(0.0)
     {
+        // --- 1. 参数声明与初始化 ---
+        declareParameters();
+
+        // --- 2. QOS 配置 ---
         rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
         auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 10), qos_profile);
 
+        // --- 3. 订阅者与发布者初始化 ---
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
             "/cmd_vel", 10, std::bind(&CmdVelToPx4::cmdVelCallback, this, std::placeholders::_1));
             
@@ -32,12 +37,18 @@ public:
         offboard_control_mode_pub_ = this->create_publisher<px4_msgs::msg::OffboardControlMode>("/fmu/in/offboard_control_mode", 10);
         trajectory_setpoint_pub_ = this->create_publisher<px4_msgs::msg::TrajectorySetpoint>("/fmu/in/trajectory_setpoint", 10);
 
+        // --- 4. 定时器初始化 ---
         control_timer_ = this->create_wall_timer(100ms, std::bind(&CmdVelToPx4::controlLoop, this));
         state_timer_ = this->create_wall_timer(1000ms, std::bind(&CmdVelToPx4::stateGuardLoop, this));
+
+        // --- 5. 动态调参回调绑定 ---
+        param_sub_ = this->add_on_set_parameters_callback(
+            std::bind(&CmdVelToPx4::parametersCallback, this, std::placeholders::_1));
 
         RCLCPP_INFO(this->get_logger(), "\033[1;32m[INIT] Nav2_To_PX4 Offboard Bridge Started. Waiting for commands...\033[0m");
     }
 
+    // --- 紧急制动接口 ---
     void emergencyShutdown()
     {
         RCLCPP_WARN(this->get_logger(), "\033[1;31mCtrl+C Detected! Switching to MANUAL and DISARMING...\033[0m");
@@ -48,28 +59,29 @@ public:
     }
 
 private:
+    // --- 状态标志位 ---
     uint8_t nav_state_{0};
     uint8_t arming_state_{0};
-    bool has_entered_offboard_{false}; // 单次进入 Offboard 标志位
+    bool has_entered_offboard_{false};
     
-    // 速度与滤波变量
+    // --- 速度与滤波缓存变量 ---
     double current_vx_, current_vy_;
     double target_vx_, target_vy_;
     double filtered_raw_vx_, filtered_raw_vy_;
 
-    // ================= 核心调参宏 =================
-    const double ALPHA = 0.5;             // /cmd_vel 的一阶低通滤波系数 (越小越平滑，但延迟越大)
-    const double ACCEL_LIMIT = 0.5;       // 每秒最大加速度 0.5 m/s^2
-    const double DEADZONE_X = 0.4;        // X轴死区
-    const double DEADZONE_Y = 0.2;        // Y轴死区
-    const double LEFT_FEEDFORWARD = -0.1; // 向左前馈补偿（PX4 FRD中Vy负值为左）
-    
-    // 新增限幅与缩放参数
-    const double SCALE_X = 1.5;           // X轴(线速度)放大倍数
-    const double MAX_VEL_X = 2.0;         // X轴(线速度)最大绝对值限幅 (m/s)
-    const double MAX_VEL_Y = 1.0;         // Y轴(角速度转化的横向速度)最大绝对值限幅 (m/s)
-    // ==============================================
+    // --- 动态调参变量 (替代原核心宏) ---
+    double alpha_;             // 一阶低通滤波系数
+    double coeff_x_;           // X轴系数 (线速度)
+    double coeff_y_;           // Y轴系数 (角速度缩放)
+    double max_vel_x_;         // X轴最大绝对值限幅
+    double max_vel_y_;         // Y轴最大绝对值限幅
+    double min_vel_x_;         // X轴最低启动速度
+    double min_vel_y_;         // Y轴最低启动速度
+    double accel_limit_x_;     // X轴线加速度限制
+    double accel_limit_y_;     // Y轴角加速度限制
+    double left_feedforward_;  // 向左前馈补偿
 
+    // --- ROS 2 节点句柄 ---
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_sub_;
     rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicle_command_pub_;
@@ -77,60 +89,125 @@ private:
     rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr trajectory_setpoint_pub_;
     rclcpp::TimerBase::SharedPtr control_timer_;
     rclcpp::TimerBase::SharedPtr state_timer_;
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_sub_;
 
+    // --- 内部方法：声明并初始化参数 ---
+    void declareParameters()
+    {
+        this->declare_parameter("alpha", 0.5);
+        this->declare_parameter("coeff_x", 1.5);
+        this->declare_parameter("coeff_y", 0.8);
+        this->declare_parameter("max_vel_x", 2.0);
+        this->declare_parameter("max_vel_y", 0.8);
+        this->declare_parameter("min_vel_x", 0.3);
+        this->declare_parameter("min_vel_y", 0.1);
+        this->declare_parameter("accel_limit_x", 0.5);
+        this->declare_parameter("accel_limit_y", 0.3);
+        this->declare_parameter("left_feedforward", -0.1);
+
+        alpha_ = this->get_parameter("alpha").as_double();
+        coeff_x_ = this->get_parameter("coeff_x").as_double();
+        coeff_y_ = this->get_parameter("coeff_y").as_double();
+        max_vel_x_ = this->get_parameter("max_vel_x").as_double();
+        max_vel_y_ = this->get_parameter("max_vel_y").as_double();
+        min_vel_x_ = this->get_parameter("min_vel_x").as_double();
+        min_vel_y_ = this->get_parameter("min_vel_y").as_double();
+        accel_limit_x_ = this->get_parameter("accel_limit_x").as_double();
+        accel_limit_y_ = this->get_parameter("accel_limit_y").as_double();
+        left_feedforward_ = this->get_parameter("left_feedforward").as_double();
+    }
+
+    // --- 内部方法：动态参数回调 ---
+    rcl_interfaces::msg::SetParametersResult parametersCallback(const std::vector<rclcpp::Parameter> &parameters)
+    {
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = true;
+        result.reason = "Parameters successfully updated";
+
+        for (const auto &param : parameters) {
+            if (param.get_name() == "alpha") alpha_ = param.as_double();
+            else if (param.get_name() == "coeff_x") coeff_x_ = param.as_double();
+            else if (param.get_name() == "coeff_y") coeff_y_ = param.as_double();
+            else if (param.get_name() == "max_vel_x") max_vel_x_ = param.as_double();
+            else if (param.get_name() == "max_vel_y") max_vel_y_ = param.as_double();
+            else if (param.get_name() == "min_vel_x") min_vel_x_ = param.as_double();
+            else if (param.get_name() == "min_vel_y") min_vel_y_ = param.as_double();
+            else if (param.get_name() == "accel_limit_x") accel_limit_x_ = param.as_double();
+            else if (param.get_name() == "accel_limit_y") accel_limit_y_ = param.as_double();
+            else if (param.get_name() == "left_feedforward") left_feedforward_ = param.as_double();
+            
+            RCLCPP_INFO(this->get_logger(), "Parameter updated: %s = %f", param.get_name().c_str(), param.as_double());
+        }
+        return result;
+    }
+
+    // --- 回调：状态更新 ---
     void vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg)
     {
         nav_state_ = msg->nav_state;
         arming_state_ = msg->arming_state;
-
-        // 只要成功进入过一次 Offboard，就上锁，防止后续遥控器切出后节点死磕抢夺
         if (nav_state_ == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD) {
             has_entered_offboard_ = true;
         }
     }
 
+    // --- 回调：速度指令处理 ---
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
-        // 1. 滤波：平滑 Nav2 的剧烈跳动指令
-        filtered_raw_vx_ = ALPHA * msg->linear.x + (1.0 - ALPHA) * filtered_raw_vx_;
-        filtered_raw_vy_ = ALPHA * (-msg->angular.z) + (1.0 - ALPHA) * filtered_raw_vy_;
+        // 1. 滤波处理
+        filtered_raw_vx_ = alpha_ * msg->linear.x + (1.0 - alpha_) * filtered_raw_vx_;
+        filtered_raw_vy_ = alpha_ * (-msg->angular.z) + (1.0 - alpha_) * filtered_raw_vy_;
 
-        // 2. 缩放与限幅：使用核心调参宏进行控制
-        double raw_vx = filtered_raw_vx_ * SCALE_X;
-        raw_vx = std::clamp(raw_vx, -MAX_VEL_X, MAX_VEL_X);
-        
-        double raw_vy = std::clamp(filtered_raw_vy_, -MAX_VEL_Y, MAX_VEL_Y);
+        // 2. 系数缩放
+        double raw_vx = filtered_raw_vx_ * coeff_x_;
+        double raw_vy = filtered_raw_vy_ * coeff_y_;
 
-        // 3. 差速模型联动补全 (只给角速度不给线速度船不动的情况)
+        // 3. 绝对值限幅
+        raw_vx = std::clamp(raw_vx, -max_vel_x_, max_vel_x_);
+        raw_vy = std::clamp(raw_vy, -max_vel_y_, max_vel_y_);
+
+        // 4. 原地旋转差速保护
         if (std::abs(raw_vy) > 0.01 && std::abs(raw_vx) < 0.01) {
             raw_vx = 0.15; 
         }
 
-        // 4. 应用独立死区
-        target_vx_ = applyDeadzone(raw_vx, DEADZONE_X);
-        target_vy_ = applyDeadzone(raw_vy, DEADZONE_Y);
+        // 5. 应用最低启动速度 (解决微调过猛问题)
+        target_vx_ = applyMinStartingVelocity(raw_vx, min_vel_x_);
+        target_vy_ = applyMinStartingVelocity(raw_vy, min_vel_y_);
 
-        // 5. 硬件物理纠偏 (写在死区下方)
-        // 只要有实际的速度指令输出（船需要动），就叠加向左的固定前馈
+        // 6. 硬件物理前馈纠偏
         if (std::abs(target_vx_) > 0.001 || std::abs(target_vy_) > 0.001) {
-            target_vy_ += LEFT_FEEDFORWARD;
+            target_vy_ += left_feedforward_;
         }
     }
 
-    double applyDeadzone(double val, double deadzone_thresh)
+    // --- 算法：最低启动速度计算 ---
+    double applyMinStartingVelocity(double val, double min_vel)
     {
         if (std::abs(val) < 0.01) {
             return 0.0;
         }
-        if (std::abs(val) < deadzone_thresh) {
-            return (val > 0) ? deadzone_thresh : -deadzone_thresh;
+        if (std::abs(val) < min_vel) {
+            return (val > 0) ? min_vel : -min_vel;
         }
         return val;
     }
 
+    // --- 算法：速度平滑 (加速度限制) ---
+    double smoothVelocity(double current, double target, double max_step)
+    {
+        if (current < target) {
+            return std::min(current + max_step, target);
+        } else if (current > target) {
+            return std::max(current - max_step, target);
+        }
+        return current;
+    }
+
+    // --- 任务：10Hz 控制主循环 ---
     void controlLoop()
     {
-        // 维持 Offboard 心跳
+        // 维持心跳
         px4_msgs::msg::OffboardControlMode mode_msg;
         mode_msg.position = false;
         mode_msg.velocity = true;
@@ -140,14 +217,15 @@ private:
         mode_msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
         offboard_control_mode_pub_->publish(mode_msg);
 
-        // 运动平滑处理
-        double dt = 0.1; // 10Hz 控制环
-        double max_dv = ACCEL_LIMIT * dt;
+        // 加速度限制处理
+        double dt = 0.1; // 10Hz
+        double max_dv_x = accel_limit_x_ * dt;
+        double max_dv_y = accel_limit_y_ * dt;
 
-        current_vx_ = smoothVelocity(current_vx_, target_vx_, max_dv);
-        current_vy_ = smoothVelocity(current_vy_, target_vy_, max_dv);
+        current_vx_ = smoothVelocity(current_vx_, target_vx_, max_dv_x);
+        current_vy_ = smoothVelocity(current_vy_, target_vy_, max_dv_y);
 
-        // 发布轨迹设定点
+        // 发布设定点
         px4_msgs::msg::TrajectorySetpoint setpoint;
         setpoint.timestamp = this->get_clock()->now().nanoseconds() / 1000;
         setpoint.velocity[0] = current_vx_;
@@ -161,31 +239,21 @@ private:
         trajectory_setpoint_pub_->publish(setpoint);
     }
 
-    double smoothVelocity(double current, double target, double max_step)
-    {
-        if (current < target) {
-            return std::min(current + max_step, target);
-        } else if (current > target) {
-            return std::max(current - max_step, target);
-        }
-        return current;
-    }
-
+    // --- 任务：1Hz 状态守护守护循环 ---
     void stateGuardLoop()
     {
-        // 如果从未进入过 Offboard，且当前不在 Offboard 状态，则发起切换
         if (!has_entered_offboard_ && nav_state_ != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD) {
             RCLCPP_WARN(this->get_logger(), "Attempting initial switch to Offboard mode...");
             publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
         }
         
-        // Arming 逻辑同样受到 !has_entered_offboard_ 的保护，防止遥控器上锁后代码强制重新解锁
         if (!has_entered_offboard_ && arming_state_ != px4_msgs::msg::VehicleStatus::ARMING_STATE_ARMED) {
             RCLCPP_WARN(this->get_logger(), "Vehicle disarmed. Attempting initial Arming...");
             publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
         }
     }
 
+    // --- 工具：发布底层命令 ---
     void publishVehicleCommand(uint16_t command, float param1 = 0.0, float param2 = 0.0)
     {
         px4_msgs::msg::VehicleCommand msg;
@@ -217,9 +285,7 @@ int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
     node_ptr = std::make_shared<CmdVelToPx4>();
-    
     std::signal(SIGINT, signalHandler);
-
     rclcpp::spin(node_ptr);
     return 0;
 }

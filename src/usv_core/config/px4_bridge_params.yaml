@@ -1,0 +1,23 @@
+cmd_vel_to_px4:
+  ros__parameters:
+    # 1. 滤波参数
+    alpha: 0.5              # 一阶低通滤波系数 (0~1，越小越平滑但延迟越大)
+    
+    # 2. 系数参数 (Coefficient)
+    coeff_x: 1.5            # X轴系数 (线速度缩放)
+    coeff_y: 0.8            # Y轴系数 (角速度缩放)
+    
+    # 3. 绝对限幅 (Limit)
+    max_vel_x: 2.0          # X轴最大绝对值限幅 (m/s)
+    max_vel_y: 0.8          # Y轴最大绝对值限幅 (rad/s 转换为横向分量)
+    
+    # 4. 最低启动速度 (Min Starting Velocity)
+    min_vel_x: 0.3          # X轴电机最低启动速度
+    min_vel_y: 0.1          # Y轴差速最低启动速度
+    
+    # 5. 变化率限制 (Slew Rate / Acceleration Limit)
+    accel_limit_x: 0.5      # X轴线加速度限制 (m/s^2)
+    accel_limit_y: 0.3      # Y轴角加速度限制 (rad/s^2)
+    
+    # 6. 硬件特性前馈
+    left_feedforward: -0.1  # 向左前馈补偿（PX4 FRD中Vy负值为左）
