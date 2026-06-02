@@ -18,9 +18,9 @@
 using namespace std::chrono_literals;
 
 enum class BridgeState {
-    INIT_HEARTBEAT, // 初始发送心跳，建立连接
-    ARM_AND_SWITCH, // 解锁并切换至 Offboard 模式
-    ACTIVE          // 正常控制态
+    INIT_HEARTBEAT, 
+    ARM_AND_SWITCH, 
+    ACTIVE          
 };
 
 class UsvOffboardTest : public rclcpp::Node
@@ -29,7 +29,6 @@ public:
     UsvOffboardTest() : Node("usv_offboard_test"), 
         current_yaw_ned_(0.0), target_vx_flu_(0.0), target_vy_flu_(0.0), target_wz_flu_(0.0)
     {
-        // ----------------- 订阅器 -----------------
         px4_odom_sub_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
             "/fmu/out/vehicle_odometry", rclcpp::QoS(10).best_effort(),
             std::bind(&UsvOffboardTest::odomCallback, this, std::placeholders::_1));
@@ -38,7 +37,6 @@ public:
             "/fmu/out/vehicle_status", rclcpp::QoS(10).best_effort(),
             std::bind(&UsvOffboardTest::statusCallback, this, std::placeholders::_1));
 
-        // ----------------- 发布器 -----------------
         offboard_control_mode_pub_ = this->create_publisher<px4_msgs::msg::OffboardControlMode>(
             "/fmu/in/offboard_control_mode", 10);
         trajectory_setpoint_pub_ = this->create_publisher<px4_msgs::msg::TrajectorySetpoint>(
@@ -46,18 +44,14 @@ public:
         vehicle_command_pub_ = this->create_publisher<px4_msgs::msg::VehicleCommand>(
             "/fmu/in/vehicle_command", 10);
 
-        // ----------------- 状态初始化 -----------------
         bridge_state_ = BridgeState::INIT_HEARTBEAT;
         init_counter_ = 0;
         last_cmd_send_time_ns_.store(this->get_clock()->now().nanoseconds());
 
-        // 控制主循环，50ms (20Hz)
         control_timer_ = this->create_wall_timer(50ms, std::bind(&UsvOffboardTest::controlLoop, this));
 
-        // ----------------- 终端 UI 打印 -----------------
         printWelcomeMenu();
 
-        // ----------------- 启动键盘监听线程 -----------------
         keep_running_ = true;
         keyboard_thread_ = std::thread(&UsvOffboardTest::keyboardLoop, this);
     }
@@ -67,19 +61,16 @@ public:
         if (keyboard_thread_.joinable()) {
             keyboard_thread_.join();
         }
-        printf("\n\033[1;31m[INFO] USV Offboard 控制节点已退出。\033[0m\n");
+        printf("\n\033[1;31m[INFO] USV 控制节点已退出。\033[0m\n");
     }
 
 private:
     void printWelcomeMenu() {
-        RCLCPP_INFO(this->get_logger(), "\033[1;36m========================================================\033[0m");
-        RCLCPP_INFO(this->get_logger(), "\033[1;32m          🚀 USV Offboard 键盘控制节点已启动 (纯映射模式) 🚀          \033[0m");
-        RCLCPP_INFO(this->get_logger(), "\033[1;36m========================================================\033[0m");
-        RCLCPP_INFO(this->get_logger(), " [\033[1;33m W / S \033[0m] : 前后平移 (机体X轴)  ±0.05 m/s (限幅 ±5.0)");
-        RCLCPP_INFO(this->get_logger(), " [\033[1;33m A / D \033[0m] : 左右平移 (机体Y轴)  ±0.05 m/s (限幅 ±5.0)");
-        RCLCPP_INFO(this->get_logger(), " [\033[1;33m Q / E \033[0m] : 左右转弯 (Yaw轴)    ±0.05 rad/s(限幅 ±5.0)");
-        RCLCPP_INFO(this->get_logger(), " [\033[1;31m 空 格 \033[0m] : 紧急悬停 (所有指令立刻归零)");
-        RCLCPP_INFO(this->get_logger(), "\033[1;36m========================================================\033[0m");
+        RCLCPP_INFO(this->get_logger(), "\033[1;32m 🚀 USV 纯手动遥控节点就绪 (纯角速度控制) 🚀 \033[0m");
+        RCLCPP_INFO(this->get_logger(), " [\033[1;33m W / S \033[0m] : 前后开 (Vx)");
+        RCLCPP_INFO(this->get_logger(), " [\033[1;33m A / D \033[0m] : 左右平移 (Vy) - 你的设置，原封不动");
+        RCLCPP_INFO(this->get_logger(), " [\033[1;33m Q / E \033[0m] : 左转 / 右转 (纯角速度控制)");
+        RCLCPP_INFO(this->get_logger(), " [\033[1;31m 空 格 \033[0m] : 紧急刹车");
         printf("\n等待按键输入...\n");
     }
 
@@ -87,14 +78,9 @@ private:
         struct termios oldt, newt;
         tcgetattr(STDIN_FILENO, &oldt);
         newt = oldt;
-        
-        // 关闭标准输入的回显和行缓冲
         newt.c_lflag &= ~(ICANON | ECHO);
         tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-        
-        // 设置非阻塞读取
-        int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-        fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+        fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL, 0) | O_NONBLOCK);
 
         const double STEP = 0.05;
         const double LIMIT = 5.0;
@@ -106,35 +92,30 @@ private:
                 double vy = target_vy_flu_.load();
                 double wz = target_wz_flu_.load();
 
-                // 解析按键，加入限幅
                 if      (c == 'w' || c == 'W') vx = std::min(vx + STEP, LIMIT);
                 else if (c == 's' || c == 'S') vx = std::max(vx - STEP, -LIMIT);
-                else if (c == 'a' || c == 'A') vy = std::min(vy + STEP, LIMIT);  // 左平移
-                else if (c == 'd' || c == 'D') vy = std::max(vy - STEP, -LIMIT); // 右平移
-                else if (c == 'q' || c == 'Q') wz = std::min(wz + STEP, LIMIT);  // 左转 (CCW)
-                else if (c == 'e' || c == 'E') wz = std::max(wz - STEP, -LIMIT); // 右转 (CW)
+                else if (c == 'a' || c == 'A') vy = std::min(vy + STEP, LIMIT);  
+                else if (c == 'd' || c == 'D') vy = std::max(vy - STEP, -LIMIT); 
+                else if (c == 'q' || c == 'Q') wz = std::min(wz + STEP, LIMIT);  
+                else if (c == 'e' || c == 'E') wz = std::max(wz - STEP, -LIMIT); 
                 else if (c == ' ') { 
                     vx = 0.0; vy = 0.0; wz = 0.0; 
                 }
 
-                // 浮点数消抖：极其靠近0时直接归零
                 if (std::abs(vx) < 0.01) vx = 0.0;
                 if (std::abs(vy) < 0.01) vy = 0.0;
                 if (std::abs(wz) < 0.01) wz = 0.0;
 
                 target_vx_flu_.store(vx);
-                target_vy_flu_.store(vy);
+                target_vy_flu_.store(vy); // 绝对不碰你的 Vy
                 target_wz_flu_.store(wz);
 
-                // 优雅的终端单行刷新打印
-                printf("\r\033[K\033[1;35m[按键 %c]\033[0m 目标指令 -> \033[1;36mVx:\033[0m %5.2f m/s  |  \033[1;36mVy:\033[0m %5.2f m/s  |  \033[1;36mWz:\033[0m %5.2f rad/s", 
+                printf("\r\033[K\033[1;35m[按键 %c]\033[0m -> \033[1;36mVx:\033[0m %5.2f | \033[1;36mVy:\033[0m %5.2f | \033[1;36mWz:\033[0m %5.2f", 
                        (c == ' ' ? 'S' : toupper(c)), vx, vy, wz);
                 fflush(stdout);
             }
             std::this_thread::sleep_for(10ms);
         }
-
-        // 恢复终端设置
         tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     }
 
@@ -153,13 +134,9 @@ private:
 
     void publish_vehicle_command(uint16_t command, float param1 = 0.0, float param2 = 0.0) {
         px4_msgs::msg::VehicleCommand msg{};
-        msg.param1 = param1; 
-        msg.param2 = param2; 
-        msg.command = command;
-        msg.target_system = 1; 
-        msg.target_component = 1;
-        msg.source_system = 1; 
-        msg.source_component = 1;
+        msg.param1 = param1; msg.param2 = param2; msg.command = command;
+        msg.target_system = 1; msg.target_component = 1;
+        msg.source_system = 1; msg.source_component = 1;
         msg.from_external = true;
         msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
         vehicle_command_pub_->publish(msg);
@@ -169,13 +146,11 @@ private:
         auto now = this->get_clock()->now();
         uint64_t timestamp = now.nanoseconds() / 1000; 
 
-        // 1. 发送 Offboard 心跳
         px4_msgs::msg::OffboardControlMode mode_msg;
         mode_msg.timestamp = timestamp;
         mode_msg.velocity = true;
         offboard_control_mode_pub_->publish(mode_msg);
 
-        // 2. 准备控制目标数据
         px4_msgs::msg::TrajectorySetpoint setpoint_msg;
         setpoint_msg.timestamp = timestamp;
         setpoint_msg.position = {NAN, NAN, NAN};
@@ -184,66 +159,54 @@ private:
         bool is_armed = (arming_state_.load() == px4_msgs::msg::VehicleStatus::ARMING_STATE_ARMED);
         bool is_offboard = (nav_state_.load() == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD);
 
-        // 3. 状态机流转
         switch (bridge_state_) {
-            case BridgeState::INIT_HEARTBEAT: {
-                setpoint_msg.velocity = {0.0f, 0.0f, 0.0f};
-                setpoint_msg.yaw = NAN;           // 禁用偏航角度纠偏
-                setpoint_msg.yawspeed = 0.0f;     // 仅给角速度指令
-                if (++init_counter_ >= 20) {
-                    bridge_state_ = BridgeState::ARM_AND_SWITCH;
-                }
-                break;
-            }
+            case BridgeState::INIT_HEARTBEAT:
             case BridgeState::ARM_AND_SWITCH: {
                 setpoint_msg.velocity = {0.0f, 0.0f, 0.0f};
-                setpoint_msg.yaw = NAN;           // 禁用偏航角度纠偏
-                setpoint_msg.yawspeed = 0.0f;     // 仅给角速度指令
+                // 【核心修改点】赋 NAN 彻底断开角度闭环，飞控不再纠正偏航角
+                setpoint_msg.yaw = NAN;           
+                setpoint_msg.yawspeed = 0.0f;     
                 
-                if (is_armed && is_offboard) {
-                    bridge_state_ = BridgeState::ACTIVE;
-                    printf("\n\033[1;32m[INFO] 切换 Offboard 成功，系统已就绪，可以开始控制！\033[0m\n");
+                if (bridge_state_ == BridgeState::INIT_HEARTBEAT) {
+                    if (++init_counter_ >= 20) bridge_state_ = BridgeState::ARM_AND_SWITCH;
                 } else {
-                    int64_t last_send_ns = last_cmd_send_time_ns_.load();
-                    // 每秒发送一次切换模式/解锁指令
-                    if ((now.nanoseconds() - last_send_ns) > 1e9) {
-                        if (!is_offboard) publish_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
-                        if (is_offboard && !is_armed) publish_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
-                        last_cmd_send_time_ns_.store(now.nanoseconds());
+                    if (is_armed && is_offboard) {
+                        bridge_state_ = BridgeState::ACTIVE;
+                        printf("\n\033[1;32m[INFO] 解锁成功！可以起飞！\033[0m\n");
+                    } else {
+                        if ((now.nanoseconds() - last_cmd_send_time_ns_.load()) > 1e9) {
+                            if (!is_offboard) publish_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
+                            if (is_offboard && !is_armed) publish_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
+                            last_cmd_send_time_ns_.store(now.nanoseconds());
+                        }
                     }
                 }
                 break;
             }
             case BridgeState::ACTIVE: {
-                const double alpha = 0.3; // 一阶低通滤波系数
-                
-                // 简单的平滑处理，防止输入阶跃
+                // 平滑过渡
+                const double alpha = 0.3; 
                 smooth_vx_ = alpha * target_vx_flu_.load() + (1.0 - alpha) * smooth_vx_;
                 smooth_vy_ = alpha * target_vy_flu_.load() + (1.0 - alpha) * smooth_vy_;
                 smooth_wz_ = alpha * target_wz_flu_.load() + (1.0 - alpha) * smooth_wz_;
 
-                // 死区函数：防止浮点误差导致始终存在微小速度
-                auto apply_deadzone = [](double val) -> double {
-                    return (std::abs(val) < 0.01) ? 0.0 : val;
-                };
-
+                auto apply_deadzone = [](double val) -> double { return (std::abs(val) < 0.01) ? 0.0 : val; };
                 double vx = apply_deadzone(smooth_vx_);      
                 double vy = apply_deadzone(smooth_vy_);      
                 double wz = apply_deadzone(smooth_wz_);      
 
                 double current_yaw = current_yaw_ned_.load();
 
-                // === 纯数学映射逻辑 (FLU 到 NED) ===
-                // 北向速度 (North)
+                // 【必须存在的数学转换】：为了确保你按 W 永远是“往机头方向开”，按 A/D 永远是左右平移。
+                // 否则飞控会把 W 认作“往地球北极开”。
                 setpoint_msg.velocity[0] = vx * cos(current_yaw) + vy * sin(current_yaw); 
-                // 东向速度 (East)
                 setpoint_msg.velocity[1] = vx * sin(current_yaw) - vy * cos(current_yaw); 
-                // 下向速度 (Down) - 保持平面运动
                 setpoint_msg.velocity[2] = 0.0;
                 
-                // 彻底禁用外部偏航闭环，NAN 让 PX4 忽略角度目标
+                // 【完全按你的要求修改】
+                // 1. 角度赋为 NAN，彻底去掉偏航角闭环，爱朝哪朝哪，飞控不干涉
                 setpoint_msg.yaw = NAN;
-                // 仅传递角速度指令 (机体系FLU左正转(CCW) -> 对应NED系下方右正转(CW)，加负号即可)
+                // 2. 纯给角速度，按 Q/E 直接控制飞控转弯速率
                 setpoint_msg.yawspeed = -wz; 
                 break;
             }
@@ -252,7 +215,6 @@ private:
         trajectory_setpoint_pub_->publish(setpoint_msg);
     }
 
-    // ----------------- 类成员变量 -----------------
     rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr px4_odom_sub_;
     rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr px4_status_sub_;
     rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr offboard_control_mode_pub_;
@@ -263,12 +225,10 @@ private:
     BridgeState bridge_state_;
     int init_counter_;
     
-    // 平滑后的执行值
     double smooth_vx_{0.0};
     double smooth_vy_{0.0};
     double smooth_wz_{0.0};
     
-    // 原子变量，用于多线程安全
     std::atomic<int64_t> last_cmd_send_time_ns_;
     std::atomic<double> current_yaw_ned_;
     std::atomic<double> target_vx_flu_;
@@ -277,7 +237,6 @@ private:
     std::atomic<uint8_t> nav_state_{0};
     std::atomic<uint8_t> arming_state_{0};
 
-    // 键盘监听
     std::thread keyboard_thread_;
     std::atomic<bool> keep_running_;
 };

@@ -47,32 +47,24 @@ public:
         last_turn_key_time_ = this->get_clock()->now();
 
         control_timer_ = this->create_wall_timer(50ms, std::bind(&UsvOffboardTest::controlLoop, this));
-
-        // 启动键盘监听线程
         keyboard_thread_ = std::thread(&UsvOffboardTest::keyboardLoop, this);
 
         RCLCPP_INFO(this->get_logger(), "\033[1;32m[INIT] USV Keyboard Test Node Started \033[0m");
-        RCLCPP_INFO(this->get_logger(), "\033[1;36mControls:\n [W]: 加速 (+0.2, Max 2.0)\n [S]: 减速 (-0.2, Min 0.0)\n [A/D]: 左右转 (长按, 0.785 rad/s)\n [Space]: 紧急停船 (归零)\033[0m");
+        RCLCPP_INFO(this->get_logger(), "\033[1;36mControls:\n [W]: 加速 \n [S]: 减速 \n [Q/E]: 左右转 \n [Space]: 紧急停船\033[0m");
     }
 
     ~UsvOffboardTest() {
-        // 节点销毁时恢复终端设置
         tcsetattr(STDIN_FILENO, TCSANOW, &original_termios_);
-        if (keyboard_thread_.joinable()) {
-            keyboard_thread_.join();
-        }
+        if (keyboard_thread_.joinable()) keyboard_thread_.join();
     }
 
 private:
     void keyboardLoop() {
-        // 备份并修改终端设置以实现无阻塞按键读取
         tcgetattr(STDIN_FILENO, &original_termios_);
         struct termios newt = original_termios_;
         newt.c_lflag &= ~(ICANON | ECHO);
         tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-        
-        int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-        fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+        fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL, 0) | O_NONBLOCK);
 
         while (rclcpp::ok()) {
             char c;
@@ -81,27 +73,24 @@ private:
                 auto now = this->get_clock()->now();
                 if (c == 'w' || c == 'W') {
                     double v = target_vx_.load();
-                    v += 0.2;
-                    if (v > 0.0 && v < 0.2) v = 0.2; // 最低速度0.2
-                    if (v > 2.0) v = 2.0;            // 上限2.0
+                    v = std::min(v + 0.2, 2.0);
+                    if (v > 0.0 && v < 0.2) v = 0.2;
                     target_vx_.store(v);
                 } 
                 else if (c == 's' || c == 'S') {
                     double v = target_vx_.load();
-                    v -= 0.2;
-                    if (v < 0.0) v = 0.0;            // 最小值为0.0，不能倒车
-                    target_vx_.store(v);
+                    target_vx_.store(std::max(v - 0.2, 0.0));
                 } 
                 else if (c == ' ') {
                     target_vx_.store(0.0);
                     target_wz_.store(0.0);
                 } 
-                else if (c == 'a' || c == 'A') {
-                    target_wz_.store(0.785);         // 左转 (ROS标准中Z轴正向为左)
+                else if (c == 'q' || c == 'Q') {
+                    target_wz_.store(0.785);
                     last_turn_key_time_ = now;
                 } 
-                else if (c == 'd' || c == 'D') {
-                    target_wz_.store(-0.785);        // 右转
+                else if (c == 'e' || c == 'E') {
+                    target_wz_.store(-0.785);
                     last_turn_key_time_ = now;
                 }
             }
@@ -145,6 +134,9 @@ private:
         setpoint_msg.timestamp = timestamp;
         setpoint_msg.position = {NAN, NAN, NAN};
         setpoint_msg.acceleration = {NAN, NAN, NAN};
+        
+        // 【坚决服从】：全局禁用 yaw
+        setpoint_msg.yaw = NAN; 
 
         bool is_armed = (arming_state_.load() == px4_msgs::msg::VehicleStatus::ARMING_STATE_ARMED);
         bool is_offboard = (nav_state_.load() == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD);
@@ -152,13 +144,13 @@ private:
         switch (bridge_state_) {
             case BridgeState::INIT_HEARTBEAT: {
                 setpoint_msg.velocity = {0.0f, 0.0f, 0.0f};
-                setpoint_msg.yaw = current_yaw_ned_.load();
+                setpoint_msg.yawspeed = 0.0f;
                 if (++init_counter_ >= 20) bridge_state_ = BridgeState::ARM_AND_SWITCH;
                 break;
             }
             case BridgeState::ARM_AND_SWITCH: {
                 setpoint_msg.velocity = {0.0f, 0.0f, 0.0f};
-                setpoint_msg.yaw = current_yaw_ned_.load();
+                setpoint_msg.yawspeed = 0.0f;
                 if (is_armed && is_offboard) bridge_state_ = BridgeState::ACTIVE;
                 else {
                     int64_t last_send_ns = last_cmd_send_time_ns_.load();
@@ -171,7 +163,6 @@ private:
                 break;
             }
             case BridgeState::ACTIVE: {
-                // 判断按键松开：如果距离最后一次接收到 A/D 信号超过 150ms，则视作按键已松开
                 if ((now - last_turn_key_time_).seconds() > 0.15) {
                     target_wz_.store(0.0);
                 }
@@ -179,53 +170,36 @@ private:
                 double raw_vx = target_vx_.load();
                 double raw_wz = target_wz_.load();
 
-                // === 双发 USV 测试特性 ===
-                // 如果当前正在给转弯指令，但速度为0（静止状态），强制给 0.2 的向前油门以便电机能够转动船体
                 if (std::abs(raw_wz) > 0.01 && raw_vx < 0.2) {
                     raw_vx = 0.2;
                 }
 
-                // 一阶低通滤波 (Smoothing)
                 const double alpha = 0.3; 
                 smooth_vx_ = alpha * raw_vx + (1.0 - alpha) * smooth_vx_;
                 smooth_wz_ = alpha * raw_wz + (1.0 - alpha) * smooth_wz_;
 
-                // 最小死区过滤，避免浮点数残留
                 double vx = (std::abs(smooth_vx_) > 0.01) ? smooth_vx_ : 0.0;
                 double wz = (std::abs(smooth_wz_) > 0.01) ? smooth_wz_ : 0.0;
 
-                // 转向与抗漂移逻辑
                 double current_yaw = current_yaw_ned_.load();
-                static double target_yaw = current_yaw;
                 
-                if (std::abs(vx) > 0.01 || std::abs(wz) > 0.01) {
-                    target_yaw += (-wz) * 0.05; 
-                    double yaw_error = current_yaw - target_yaw;
-                    while (yaw_error > M_PI) yaw_error -= 2.0 * M_PI;
-                    while (yaw_error < -M_PI) yaw_error += 2.0 * M_PI;
-                    target_yaw += yaw_error * 0.05;
-                } else {
-                    target_yaw = current_yaw; 
-                }
+                // 【核心修复：防止 atan2(0,0) 回头跳变】
+                // 如果用户没给速度 (vx = 0)，强制设为 1mm/s 的微小速度。
+                // 这点速度无法克服水的阻力，船不会动；
+                // 但它能保证 velocity 向量永远有效且指向当前船头，彻底废掉 PX4 底层烦人的自动归零(向北)对齐特性。
+                double safe_vx = (std::abs(vx) > 0.01) ? vx : 0.001; 
 
-                setpoint_msg.velocity[0] = vx * cos(target_yaw);
-                setpoint_msg.velocity[1] = vx * sin(target_yaw);
+                setpoint_msg.velocity[0] = safe_vx * cos(current_yaw);
+                setpoint_msg.velocity[1] = safe_vx * sin(current_yaw);
                 setpoint_msg.velocity[2] = 0.0;
-                setpoint_msg.yaw = target_yaw;
+                
+                // 纯偏航角速度输入，完全由你的按键接管
                 setpoint_msg.yawspeed = -wz; 
                 break;
             }
         }
         
         trajectory_setpoint_pub_->publish(setpoint_msg);
-
-        // 控制台状态打印 (1Hz 节流)
-        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, 
-            "[KEYBOARD STATE]  target_vx: %.2f, target_wz: %.2f\n"
-            "  [PX4_CMD OUT] vel(N: %.2f, E: %.2f, D: %.2f), yaw: %.2f, yawspeed: %.2f",
-            target_vx_.load(), target_wz_.load(),
-            setpoint_msg.velocity[0], setpoint_msg.velocity[1], setpoint_msg.velocity[2],
-            setpoint_msg.yaw, setpoint_msg.yawspeed);
     }
 
     rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr px4_odom_sub_;
@@ -237,20 +211,15 @@ private:
 
     BridgeState bridge_state_;
     int init_counter_;
-    
     double smooth_vx_{0.0};
     double smooth_wz_{0.0};
-    
     std::atomic<int64_t> last_cmd_send_time_ns_;
     rclcpp::Time last_turn_key_time_;
-
     std::atomic<double> current_yaw_ned_;
     std::atomic<double> target_vx_;
     std::atomic<double> target_wz_;
     std::atomic<uint8_t> nav_state_{0};
     std::atomic<uint8_t> arming_state_{0};
-
-    // 终端和键盘输入线程相关
     struct termios original_termios_;
     std::thread keyboard_thread_;
 };
