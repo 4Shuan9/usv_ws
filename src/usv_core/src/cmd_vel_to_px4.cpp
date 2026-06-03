@@ -94,14 +94,14 @@ private:
     // --- 内部方法：声明并初始化参数 ---
     void declareParameters()
     {
-        this->declare_parameter("alpha", 0.8);
-        this->declare_parameter("coeff_x", 2.5);
-        this->declare_parameter("coeff_y", 0.4);
+        this->declare_parameter("alpha", 0.85);
+        this->declare_parameter("coeff_x", 3.5);
+        this->declare_parameter("coeff_y", 0.3);
         this->declare_parameter("max_vel_x", 2.0);
         this->declare_parameter("max_vel_y", 0.8);
         this->declare_parameter("min_vel_x", 0.3);
-        this->declare_parameter("min_vel_y", 0.1);
-        this->declare_parameter("accel_limit_x", 0.8);
+        this->declare_parameter("min_vel_y", 0.08);
+        this->declare_parameter("accel_limit_x", 1.5);
         this->declare_parameter("accel_limit_y", 0.3);
         this->declare_parameter("left_feedforward", 0.0);
 
